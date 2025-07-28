@@ -1,0 +1,192 @@
+name: BSQA Code Review AI
+
+on:
+  workflow_call:
+    inputs:
+      gist_url:
+        required: true
+        type: string
+    secrets:
+      STACKSPOT_CLIENT_ID:
+        required: true
+      STACKSPOT_CLIENT_SECRET:
+        required: true
+      STACKSPOT_AGENT_ID:
+        required: true
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  ai-review:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+
+    steps:
+      - name: 🔄 Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: 🔍 Gerando Diff
+        run: |
+          git fetch origin ${{ github.base_ref }}
+          git diff origin/${{ github.base_ref }}...HEAD > diff.txt
+          if [ ! -f diff.txt ] || [ ! -s diff.txt ]; then
+            echo "No changes to review" > diff.txt
+          fi
+
+      - name: 📝 Baixando Prompt do Gist
+        run: |
+          echo "📥 Baixando prompt template do Gist..."
+
+          GIST_URL="${{ inputs.gist_url }}"
+          
+          curl -s --fail --max-time 30 "$GIST_URL" -o prompt_template.txt
+
+          if [ ! -s prompt_template.txt ]; then
+            echo "❌ Prompt vazio ou não encontrado"
+            exit 1
+          fi
+
+          echo "✅ Prompt baixado com sucesso"
+          echo "📊 Tamanho: $(wc -c < prompt_template.txt) bytes"
+          echo "📋 Preview:"
+          head -n 5 prompt_template.txt
+
+      - name: 🛠️ Preparando Prompt Final
+        run: |          
+          {
+            cat prompt_template.txt
+            echo ""
+            echo ""
+            cat diff.txt
+          } > prompt.txt
+          
+          echo "📋 Conteúdo que será enviado para code review AI:"
+          echo "============================================"
+          cat prompt.txt
+          echo "============================================"
+
+      - name: 🔐 Autenticação StackSpot
+        run: |
+          
+          TOKEN_RESPONSE=$(curl -s --fail --max-time 30 \
+            --location 'https://idm.stackspot.com/stackspot-freemium/oidc/oauth/token' \
+            --header 'Content-Type: application/x-www-form-urlencoded' \
+            --data-urlencode "client_id=${{ secrets.STACKSPOT_CLIENT_ID }}" \
+            --data-urlencode 'grant_type=client_credentials' \
+            --data-urlencode "client_secret=${{ secrets.STACKSPOT_CLIENT_SECRET }}") || {
+            echo "❌ Falha na autenticação StackSpot"
+            exit 1
+          }
+          
+          if ! echo "$TOKEN_RESPONSE" | jq . > /dev/null 2>&1; then
+            echo "❌ Resposta de autenticação inválida"
+            exit 1
+          fi
+          
+          if echo "$TOKEN_RESPONSE" | jq -e '.error' > /dev/null 2>&1; then
+            ERROR=$(echo "$TOKEN_RESPONSE" | jq -r '.error_description // .error')
+            echo "❌ Erro de autenticação: $ERROR"
+            exit 1
+          fi
+          
+          ACCESS_TOKEN=$(echo "$TOKEN_RESPONSE" | jq -r '.access_token')
+          if [ -z "$ACCESS_TOKEN" ] || [ "$ACCESS_TOKEN" = "null" ]; then
+            echo "❌ Token não encontrado na resposta"
+            exit 1
+          fi
+          
+          echo "::add-mask::$ACCESS_TOKEN"
+          echo "ACCESS_TOKEN=$ACCESS_TOKEN" >> $GITHUB_ENV
+          echo "✅ Autenticação bem-sucedida"
+
+      - name: 🤖 BSQA Code Review AI
+        run: |
+          
+          PROMPT_CONTENT=$(cat prompt.txt)
+          ESCAPED_PROMPT=$(printf '%s' "$PROMPT_CONTENT" | jq -Rs .)
+          
+          RESPONSE=$(curl -s -w "\n###STATUS###%{http_code}" \
+            --max-time 60 \
+            --location "https://genai-inference-app.stackspot.com/v1/agent/${{ secrets.STACKSPOT_AGENT_ID }}/chat" \
+            --header 'Content-Type: application/json' \
+            --header "Authorization: Bearer $ACCESS_TOKEN" \
+            --data "{
+              \"streaming\": false,
+              \"user_prompt\": $ESCAPED_PROMPT,
+              \"stackspot_knowledge\": false,
+              \"return_ks_in_response\": false
+            }")
+          
+          HTTP_STATUS=$(echo "$RESPONSE" | tail -n 1 | sed 's/.*###STATUS###//')
+          RESPONSE_BODY=$(echo "$RESPONSE" | sed '$d')
+          
+          if [ "$HTTP_STATUS" != "200" ]; then
+            echo "❌ Erro na API (HTTP $HTTP_STATUS)"
+            exit 1
+          fi
+          
+          if ! echo "$RESPONSE_BODY" | jq . > /dev/null 2>&1; then
+            echo "❌ Resposta do code review AI inválida"
+            exit 1
+          fi
+          
+          REVIEW_OUTPUT=$(echo "$RESPONSE_BODY" | jq -r '.message // .output_text // empty')
+          
+          if [ -z "$REVIEW_OUTPUT" ] || [ "$REVIEW_OUTPUT" = "null" ]; then
+            echo "❌ Falha ao extrair resposta da IA"
+            exit 1
+          fi
+          
+          echo "$REVIEW_OUTPUT" > review.txt
+          echo "✅ Análise concluída"
+          
+          echo "📋 Conteúdo da análise recebida:"
+          echo "============================================"
+          cat review.txt
+          echo "============================================"
+
+      - name: 💬 Realizando comentário no PR
+        run: |
+          
+          {
+            echo "## 🤖 Code Review Automática - BSQA"
+            echo ""
+            echo "**PR:** #${{ github.event.pull_request.number }}"
+            echo "**Branch:** \`${{ github.head_ref }}\` → \`${{ github.base_ref }}\`"
+            echo ""
+            echo "---"
+            echo ""
+            cat review.txt
+            echo ""
+            echo "---"
+            echo "*Gerado em $(date -u '+%Y-%m-%d %H:%M:%S UTC')*"
+          } > final_review.txt
+          
+          gh pr comment ${{ github.event.pull_request.number }} --body-file final_review.txt
+          echo "✅ Comentário adicionado com sucesso"
+
+      - name: ⚡ Validação do Resultado
+        run: |
+          if [ ! -f review.txt ]; then
+            echo "❌ Arquivo review.txt não encontrado. Falhando job."
+            exit 1
+          fi
+          if grep -q "REPROVADO" review.txt; then
+            echo "❌ REPROVADO - Problemas críticos encontrados"
+            exit 1
+          elif grep -q "APROVADO" review.txt; then
+            echo "✅ APROVADO - Código pode prosseguir"
+          else
+            echo "⚠️ INDETERMINADO - Assumindo aprovação"
+          fi
+
+      - name: 🧹 Limpeza
+        if: always()
+        run: |
+          rm -f diff.txt prompt_template.txt prompt.txt review.txt final_review.txt
+          echo "✅ Arquivos temporários removidos"
