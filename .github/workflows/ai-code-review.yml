@@ -13,6 +13,8 @@ on:
         required: true
       STACKSPOT_AGENT_ID:
         required: true
+      BSQA_GITHUB_TOKEN:
+        required: true
 
 permissions:
   contents: read
