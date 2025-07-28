@@ -1,4 +1,5 @@
-![GitHub Workflow](https://img.shields.io/github/actions/workflow/status/brunosbardelatti/bsqa_code_review/ai-code-review.yml?label=code%20review%20AI&logo=github&style=flat-square)
+[![Code Review AI](https://github.com/brunosbardelatti/bsqa_code_review/actions/workflows/ai-code-review.yml/badge.svg)](https://github.com/brunosbardelatti/bsqa_code_review/actions/workflows/ai-code-review.yml)
+
 
 # 🤖 BSQA Code Review AI
 
