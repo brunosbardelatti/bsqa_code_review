@@ -152,7 +152,7 @@ jobs:
 
       - name: 💬 Realizando comentário no PR
         run: |
-          
+
           {
             echo "## 🤖 Code Review Automática - BSQA"
             echo ""
@@ -166,9 +166,14 @@ jobs:
             echo "---"
             echo "*Gerado em $(date -u '+%Y-%m-%d %H:%M:%S UTC')*"
           } > final_review.txt
-          
-          gh pr comment ${{ github.event.pull_request.number }} --body-file final_review.txt
-          echo "✅ Comentário adicionado com sucesso"
+
+          for i in {1..3}; do
+            gh pr comment ${{ github.event.pull_request.number }} --body-file final_review.txt && break
+            echo "⚠️ Tentativa $i falhou ao comentar no PR. Repetindo em 5 segundos..."
+            sleep 5
+          done
+
+          echo "✅ Tentativa de comentário no PR finalizada"
 
       - name: ⚡ Validação do Resultado
         run: |
