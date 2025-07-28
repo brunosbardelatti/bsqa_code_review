@@ -152,7 +152,7 @@ jobs:
 
       - name: 💬 Realizando comentário no PR
         run: |
-          TEMPLATE_PATH=".github/templates/comment_template.md"
+          TEMPLATE_PATH=".github/workflows/codeReview/comment_template_code-review.md"
           TITLE="${{ github.event.pull_request.title }}"
           STATUS=$(grep -Eo 'APROVADO|REPROVADO|INDETERMINADO' review.txt | head -n 1)
 
