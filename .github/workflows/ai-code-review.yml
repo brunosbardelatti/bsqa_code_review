@@ -183,6 +183,58 @@ jobs:
 
           echo "✅ Comentário adicionado com sucesso"
 
+      - name: 🧾 Salvando histórico do Code Review em JSON
+        env:
+          CENTRAL_REPO: brunosbardelatti/bsqa_code_review
+          TOKEN: ${{ secrets.BSQA_GITHUB_TOKEN }}
+        run: |
+          echo "⏳ Preparando histórico..."
+
+          REPO_NAME="${{ github.repository }}"           # ex: mobly-api-test
+          PR_NUMBER="${{ github.event.pull_request.number }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          HEAD_BRANCH="${{ github.head_ref }}"
+          BASE_BRANCH="${{ github.base_ref }}"
+          STATUS=$(grep -Eo 'APROVADO|REPROVADO|INDETERMINADO' review.txt | head -n 1)
+          REVIEW_CONTENT=$(jq -Rs . < review.txt)
+
+          PAYLOAD=$(jq -n \
+            --arg repo "$REPO_NAME" \
+            --arg pr "$PR_NUMBER" \
+            --arg title "$PR_TITLE" \
+            --arg head "$HEAD_BRANCH" \
+            --arg base "$BASE_BRANCH" \
+            --arg status "$STATUS" \
+            --arg date "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
+            --argjson content "$REVIEW_CONTENT" \
+            '{
+              repository: $repo,
+              pr_number: ($pr | tonumber),
+              title: $title,
+              head_branch: $head,
+              base_branch: $base,
+              status: $status,
+              reviewed_at: $date,
+              analysis: $content
+            }')
+
+          echo "$PAYLOAD" > pr-$PR_NUMBER.json
+
+          # Clona o repositório centralizador
+          git clone https://x-access-token:$TOKEN@github.com/$CENTRAL_REPO temp_repo
+          cd temp_repo
+
+          mkdir -p historico/"$REPO_NAME"
+          mv ../pr-$PR_NUMBER.json historico/"$REPO_NAME"/
+
+          git config user.name "bsqa-bot"
+          git config user.email "bsqa-bot@users.noreply.github.com"
+          git add historico/"$REPO_NAME"/pr-$PR_NUMBER.json
+          git commit -m "📚 Histórico do PR #$PR_NUMBER do repositório $REPO_NAME"
+          git push origin main
+
+          echo "✅ Histórico do PR #$PR_NUMBER salvo com sucesso!"
+
       - name: ⚡ Validação do Resultado
         run: |
           if [ ! -f review.txt ]; then
