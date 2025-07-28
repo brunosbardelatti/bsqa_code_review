@@ -1,16 +1,13 @@
-## 🤖 Code Review Automática - BSQA
+## 🤖 Review powered by BSQA
 
 **PR:** #{{PR_NUMBER}}  
 **Título:** {{PR_TITLE}}  
-**Branch:** `{{SOURCE_BRANCH}}` → `{{TARGET_BRANCH}}`  
-**Status Code Review:** {{REVIEW_STATUS}}
+**Branch:** `{{HEAD}}` → `{{BASE}}`  
 
-<details open><summary>📋 Resultado da análise</summary>
+<details open><summary>📋 Resultado da análise: {{STATUS}}</summary>
 
-{{REVIEW_BLOCO_MARKDOWN}}
+{{REVIEW_CONTENT}}
 
 </details>
 
----
-
-*Gerado em {{DATA_HORA}} (Horário de Brasília)*
+_Gerado em {{DATE}} (Horário de Brasília)_
